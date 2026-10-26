@@ -1,0 +1,45 @@
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
+from config import config
+from database import db_session
+import uuid
+
+owner_router = Router()
+
+def check_is_owner(user_id: int) -> bool:
+    return user_id == config.OWNER_ID
+
+@owner_router.message(Command("owner"))
+async def owner_dashboard(message: Message):
+    if not check_is_owner(message.from_user.id):
+        return
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔑 VIP Kod Generator", callback_data="owner_vip_gen")]
+    ])
+    await message.answer("👑 <b>BOT EGASI PANELI</b>", reply_markup=markup, parse_mode="HTML")
+
+@owner_router.callback_query(F.data == "owner_vip_gen")
+async def choose_vip_plan(callback: CallbackQuery):
+    if not check_is_owner(callback.from_user.id):
+        return
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💎 30 kunlik (1 ta)", callback_data="gen_vip_30_1")],
+        [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="owner_back")]
+    ])
+    await callback.message.edit_text("🔑 Qancha muddatli VIP kod generatsiya qilmoqchisiz?", reply_markup=markup)
+
+@owner_router.callback_query(F.data.startswith("gen_vip_"))
+async def generate_codes(callback: CallbackQuery):
+    _, _, days_str, count_str = callback.data.split("_")
+    days, count = int(days_str), int(count_str)
+
+    generated = []
+    for _ in range(count):
+        random_part = uuid.uuid4().hex[:8].upper()
+        code = f"VIP{days}-{random_part[:4]}-{random_part[4:]}"
+        await db_session.create_vip_code(code=code, duration_days=days)
+        generated.append(f"<code>{code}</code> ({days} kunlik)")
+
+    await callback.message.answer(f"✅ <b>Yangi VIP kodlar:</b>\n\n" + "\n".join(generated), parse_mode="HTML")
+    await callback.answer("Yaratildi!")

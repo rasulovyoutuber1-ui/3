@@ -1,0 +1,80 @@
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from database import db_session
+
+user_router = Router()
+
+class SearchState(StatesGroup):
+    waiting_for_code = State()
+    waiting_for_vip_code = State()
+
+def get_main_menu_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🔍 Anime qidirish"), KeyboardButton(text="📂 Janrlar")],
+            [KeyboardButton(text="🎲 Tasodifiy anime"), KeyboardButton(text="⭐ Sevimlilar")],
+            [KeyboardButton(text="👑 VIP obuna"), KeyboardButton(text="✍️ Zayavka yuborish")]
+        ],
+        resize_keyboard=True
+    )
+
+@user_router.message(CommandStart())
+async def cmd_start(message: Message):
+    await message.answer(
+        f"👋 Salom, <b>{message.from_user.full_name}</b>!\n\n🎬 <b>AniUz Anime Bot</b>iga xush kelibsiz!",
+        reply_markup=get_main_menu_keyboard(),
+        parse_mode="HTML"
+    )
+
+@user_router.callback_query(F.data == "check_subscription")
+async def verify_sub(callback: CallbackQuery):
+    await callback.answer("🎉 Tabriklaymiz! Obuna tasdiqlandi.", show_alert=True)
+    await callback.message.delete()
+    await callback.message.answer("Asosiy menyu:", reply_markup=get_main_menu_keyboard())
+
+@user_router.message(F.text == "🔍 Anime qidirish")
+async def search_choice(message: Message):
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔢 Kod orqali", callback_data="search_by_code"),
+            InlineKeyboardButton(text="📝 Nom orqali", callback_data="search_by_name")
+        ]
+    ])
+    await message.answer("🔍 Qidiruv usulini tanlang:", reply_markup=markup)
+
+@user_router.callback_query(F.data == "search_by_code")
+async def ask_code(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(SearchState.waiting_for_code)
+    await callback.message.answer("🔢 Anime kodini kiriting (Masalan: <b>101</b>):", parse_mode="HTML")
+    await callback.answer()
+
+@user_router.message(SearchState.waiting_for_code)
+async def process_code_search(message: Message, state: FSMContext):
+    code = message.text.strip().replace("#", "")
+    anime = await db_session.get_anime_by_code(code)
+    await state.clear()
+
+    if not anime:
+        await message.answer(f"❌ <b>#{code}</b> kodli anime topilmadi.", parse_mode="HTML")
+        return
+
+    caption = f"🎬 <b>{anime.title}</b>\n🔢 Kod: <code>#{anime.code}</code>\n⭐ Reyting: {anime.rating}/10"
+    await message.answer(caption, parse_mode="HTML")
+
+@user_router.message(F.text == "🎲 Tasodifiy anime")
+async def random_anime(message: Message):
+    anime = await db_session.get_random_anime()
+    if not anime:
+        await message.answer("Bazada hali animelar mavjud emas.")
+        return
+    await message.answer(f"🎲 <b>{anime.title}</b> (Kod: #{anime.code})", parse_mode="HTML")
+
+@user_router.message(F.text == "👑 VIP obuna")
+async def vip_info(message: Message):
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔑 VIP Kodni kiritish", callback_data="enter_vip_code")]
+    ])
+    await message.answer("👑 VIP obuna bo'limi. Kodni kiriting:", reply_markup=markup)
